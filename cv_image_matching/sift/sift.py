@@ -57,7 +57,7 @@ class SIFT(object):
         """Compute the difference of gaussian images for each octave and scale.
 
         Args:
-            gaussian_images (ndarray): Stack of blurred images for each octave and scale.
+            gaussian_images (ndarray): Stack of blurred images for each octave and scale
         """
         dog_images = {}
         for octave in range(self.n_octaves):
@@ -88,7 +88,8 @@ class SIFT(object):
         """Find the keypoints in the difference of gaussian images.
 
         Args:
-            dog_images (ndarray): Stack of difference of gaussian images for each octave and scale.
+            dog_images (ndarray): Stack of difference of gaussian images
+            for each octave and scale.
         """
         keypoints = []
         for octave in range(self.n_octaves):
@@ -98,6 +99,75 @@ class SIFT(object):
                         if self.is_keypoint(dog_images, octave, scale, i, j):
                             keypoints.append((octave, scale, i, j))
         return keypoints
+
+    def calculate_hessian(
+        self, dog_images: ndarray, octave: int, scale: int, i: int, j: int
+    ) -> ndarray:
+        """Calculate the hessian matrix for a given pixel.
+
+        Args:
+            dog_images (ndarray): Stack of difference of gaussian images
+            for each octave and scale.
+            octave (int): Octave number.
+            scale (int): Scale number.
+            i (int): Row number.
+            j (int): Column number.
+        """
+        hessian = np.zeros((3, 3))
+        for x in [-1, 0, 1]:
+            for y in [-1, 0, 1]:
+                for z in [-1, 0, 1]:
+                    hessian[x + 1][y + 1] += dog_images[octave][scale + z][i + x][j + y]
+        return hessian
+
+    def is_local_maximum(
+        self,
+        dog_images: ndarray,
+        octave: int,
+        scale: int,
+        i: int,
+        j: int,
+        threshold: int = 5,
+    ):
+        """Verify if a given pixel is a maxima -> Let's filter it
+
+        Args:
+            dog_images (ndarray): Difference of gaussian images for octave and scale
+            octave (int): Identification of the octave in the pyramid of gaussian
+            scale (int): One of the scales of the octave
+            i (int): Pixel x position in the image
+            j (int): Pixel y position in the image
+        """
+
+        hessian = self.calculate_hessian(dog_images, octave, scale, i, j)
+
+        det_hessian = np.linalg.det(hessian)
+
+        if det_hessian <= 0:
+            return False
+
+        trace_hessian = np.trace(hessian)
+
+        a = (trace_hessian**2) / det_hessian
+        a_max = (threshold + 1) ** 2 / threshold
+
+        return a < a_max
+
+    def filter_keypoints(
+        self, dog_images: ndarray, keypoints: ndarray, threshold: int = 5
+    ) -> ndarray:
+        """Filter keypoints using the hessian matrix.
+
+        Args:
+            dog_images (ndarray): Stack of difference of gaussian images
+                                                  for each octave and scale.
+            keypoints (ndarray): Keypoints found in the difference of gaussian images.
+        """
+        filtered_keypoints = []
+        for octave, scale, i, j in keypoints:
+            if self.is_local_maximum(dog_images, octave, scale, i, j, threshold):
+                filtered_keypoints.append((octave, scale, i, j))
+        return filtered_keypoints
 
     def calculate_gradient(self, dog_image: ndarray, i: int, j: int) -> ndarray:
         """Calculate the gradient of a keypoint.
