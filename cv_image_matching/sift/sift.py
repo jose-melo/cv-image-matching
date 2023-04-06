@@ -1,5 +1,5 @@
 from numpy import ndarray
-from cv2 import GaussianBlur, resize
+from cv2 import GaussianBlur, resize, getGaussianKernel, filter2D, subtract
 import numpy as np
 
 
@@ -20,9 +20,12 @@ class SIFT(object):
         self.n_intervals = self.n_scales_per_octave + 3
 
         self.gaussian_scales = np.zeros(self.n_intervals)
-        for step in range(self.n_intervals):
-            self.gaussian_scales[step] = self.initial_sigma * np.sqrt(
-                2 ** (2 * (step + 1) / self.n_intervals) - 1
+        self.gaussian_scales[0] = self.initial_sigma
+        for step in range(1, self.n_intervals):
+            self.gaussian_scales[step] = (
+                self.initial_sigma
+                * (2 ** ((step - 1) / (self.n_intervals - 3)))
+                * np.sqrt(2 ** (2 / (self.n_intervals - 3)) - 1)
             )
 
         return self.gaussian_scales
@@ -41,15 +44,16 @@ class SIFT(object):
 
         for octave in range(self.n_octaves):
             gaussianed_images[octave] = {}
-            for scale in range(self.n_intervals):
-                new_image = GaussianBlur(
-                    image,
-                    (0, 0),
-                    sigmaX=self.gaussian_scales[scale],
-                    sigmaY=self.gaussian_scales[scale],
-                )
-                gaussianed_images[octave][scale] = new_image
-            image = resize(image, (image.shape[1] // 2, image.shape[0] // 2))
+
+            gaussianed_images[octave][0] = image
+            for idx, scale in enumerate(self.gaussian_scales[1:]):
+                new_image = GaussianBlur(image, (0, 0), sigmaX=scale, sigmaY=scale)
+                gaussianed_images[octave][idx + 1] = new_image
+
+            image = resize(
+                gaussianed_images[octave][idx - 2],
+                (image.shape[1] // 2, image.shape[0] // 2),
+            )
 
         return gaussianed_images
 
@@ -63,25 +67,27 @@ class SIFT(object):
         for octave in range(self.n_octaves):
             dog_images[octave] = {}
             for scale in range(self.n_intervals - 1):
-                dog_images[octave][scale] = (
-                    gaussianed_images[octave][scale + 1]
-                    - gaussianed_images[octave][scale]
+                dog_images[octave][scale] = subtract(
+                    gaussianed_images[octave][scale + 1],
+                    gaussianed_images[octave][scale],
                 )
         return dog_images
 
     def is_keypoint(
-        self, dog_images: ndarray, octave: int, scale: int, i: int, j: int
+        self, dog_images: ndarray, octave: int, scale: int, i: int, j: int, threshold: float = 0.04
     ) -> bool:
         """Check if a pixel is a keypoint (local maximum)."""
 
-        for x in [-1, 0, 1]:
-            for y in [-1, 0, 1]:
-                for z in [-1, 0, 1]:
-                    if (
-                        dog_images[octave][scale][i][j]
-                        < dog_images[octave][scale + z][i + x][j + y]
-                    ):
-                        return False
+        bound_x, bound_y = dog_images[octave][scale].shape
+        for x in np.arange(-3, 3):
+            for y in np.arange(-3, 3):
+                for z in np.arange(-1, 1):
+                    if 0 <= i + x < bound_x and 0 <= j + y < bound_y:
+                        if (
+                            dog_images[octave][scale][i][j]
+                            < dog_images[octave][scale + z][i + x][j + y]
+                        ):
+                            return False
         return True
 
     def find_keypoints(self, dog_images: ndarray) -> ndarray:
@@ -191,7 +197,7 @@ class SIFT(object):
     ) -> ndarray:
         histogram = np.zeros(36)
         window_scale = 1.5 * self.gaussian_scales[scale]
-        window_size = np.ceil(2.5 * window_scale)
+        window_size = int(np.ceil(2.5 * window_scale))
         n_bins = 36
 
         e, phi = self.calculate_gradient(dog_images[octave][scale], x, y)
@@ -203,8 +209,8 @@ class SIFT(object):
             for j in range(2 * window_size):
                 kappa_phi = n_bins / (2 * np.pi) * phi
 
-                k_0 = np.floor(kappa_phi) % n_bins
-                k_1 = (np.floor(kappa_phi) + 1) % n_bins
+                k_0 = int(np.floor(kappa_phi)) % n_bins
+                k_1 = int(np.floor(kappa_phi) + 1) % n_bins
 
                 alpha = kappa_phi - np.floor(kappa_phi)
                 w = np.exp(
@@ -216,6 +222,15 @@ class SIFT(object):
 
                 histogram[k_0] += (1 - alpha) * z
                 histogram[k_1] += alpha * z
+        print(histogram)
+        histogram = self._smooth_histogram(histogram)
+        print(histogram)
+        return histogram
+
+    def _smooth_histogram(self, hist: ndarray) -> ndarray:
+        """Smooth the histogram by convolving it with a gaussian kernel"""
+        kernel = getGaussianKernel(5, 1)
+        return filter2D(hist, -1, kernel)
 
     def calculate_orientation(
         self, dog_images: ndarray, octave: int, scale: int, x: int, y: int
@@ -227,4 +242,5 @@ class SIFT(object):
             i (int): Row of the keypoint.
             j (int): Column of the keypoint.
         """
-        pass
+        histogram = self.calculate_dominant_histogram(dog_images, octave, scale, x, y)
+        return histogram
