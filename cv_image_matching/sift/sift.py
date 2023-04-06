@@ -1,5 +1,5 @@
-from numpy import ndarray
-from cv2 import GaussianBlur, resize, getGaussianKernel, filter2D, subtract
+from numpy import float32, ndarray
+from cv2 import GaussianBlur, KeyPoint, resize, getGaussianKernel, filter2D, subtract
 import numpy as np
 
 
@@ -74,18 +74,40 @@ class SIFT(object):
         return dog_images
 
     def is_keypoint(
-        self, dog_images: ndarray, octave: int, scale: int, i: int, j: int, threshold: float = 0.04
+        self,
+        dog_images: ndarray,
+        octave: int,
+        scale: int,
+        i: int,
+        j: int,
+        threshold: float = 1,
     ) -> bool:
         """Check if a pixel is a keypoint (local maximum)."""
 
         bound_x, bound_y = dog_images[octave][scale].shape
-        for x in np.arange(-3, 3):
-            for y in np.arange(-3, 3):
-                for z in np.arange(-1, 1):
+        center_pixel = dog_images[octave][scale][i][j]
+
+        # print(center_pixel, i, j, octave, scale, bound_x, bound_y)
+        if abs(center_pixel) < threshold:
+            return False
+
+        for x in np.arange(-1, 2):
+            for y in np.arange(-1, 2):
+                for z in np.arange(-1, 2):
+                    # print(dog_images[octave][scale + z][i + x][j + y])
                     if 0 <= i + x < bound_x and 0 <= j + y < bound_y:
+                        if x == 0 and y == 0 and z == 0:  # center pixel
+                            continue
                         if (
-                            dog_images[octave][scale][i][j]
+                            center_pixel > 0
+                            and center_pixel
                             < dog_images[octave][scale + z][i + x][j + y]
+                        ):
+                            return False
+                        if (
+                            center_pixel < 0
+                            and center_pixel
+                            > dog_images[octave][scale + z][i + x][j + y]
                         ):
                             return False
         return True
@@ -97,14 +119,27 @@ class SIFT(object):
             dog_images (ndarray): Stack of difference of gaussian images
             for each octave and scale.
         """
+        keypoints_cv = []
         keypoints = []
         for octave in range(self.n_octaves):
             for scale in range(1, self.n_scales_per_octave):
                 for i in range(1, dog_images[octave][scale].shape[0] - 1):
                     for j in range(1, dog_images[octave][scale].shape[1] - 1):
                         if self.is_keypoint(dog_images, octave, scale, i, j):
+                            keypoint = KeyPoint()
+                            keypoint.pt = (
+                                j * (2**octave),
+                                i * (2**octave),
+                            )
+                            keypoint.octave = octave + scale * (2**8)
+                            keypoint.size = (
+                                self.initial_sigma
+                                * (2 ** (scale / float32(self.n_intervals - 3)))
+                                * (2 ** (octave + 1))
+                            )
+                            keypoints_cv.append(keypoint)
                             keypoints.append((octave, scale, i, j))
-        return keypoints
+        return keypoints_cv, keypoints
 
     def calculate_hessian(
         self, dog_images: ndarray, octave: int, scale: int, i: int, j: int
@@ -172,7 +207,18 @@ class SIFT(object):
         filtered_keypoints = []
         for octave, scale, i, j in keypoints:
             if self.is_local_maximum(dog_images, octave, scale, i, j, threshold):
-                filtered_keypoints.append((octave, scale, i, j))
+                keypoint = KeyPoint()
+                keypoint.pt = (
+                    j * (2**octave),
+                    i * (2**octave),
+                )
+                keypoint.octave = octave + scale * (2**8)
+                keypoint.size = (
+                    self.initial_sigma
+                    * (2 ** (scale / float32(self.n_intervals - 3)))
+                    * (2 ** (octave + 1))
+                )
+                filtered_keypoints.append(keypoint)
         return filtered_keypoints
 
     def calculate_gradient(self, dog_image: ndarray, i: int, j: int) -> ndarray:
