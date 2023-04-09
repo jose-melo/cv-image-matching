@@ -1,18 +1,12 @@
-import numpy as np
+from time import time
+
 import cv2 as cv
 import matplotlib.pyplot as plt
 from numpy import ndarray
-from time import time
-from cv_image_matching.sift.pysift import (
-    generateBaseImage,
-    generateDoGImages,
-    generateGaussianImages,
-    generateGaussianKernels,
-)
 
 from cv_image_matching.sift.sift import SIFT
 
-
+IMG_PATH = "data/train/notre_dame_front_facade/images/01516300_11234314903.jpg"
 IMG_PATH = "data/index.png"
 
 
@@ -28,9 +22,9 @@ def main():
     img = load_image(IMG_PATH)
     img = img.astype("float32")
 
-    params = {"initial_sigma": 1.6, "n_scales_per_octave": 3, "n_octaves": 8}
+    params = {"initial_sigma": 1.6, "n_scales_per_octave": 10, "n_octaves": 8}
     sift = SIFT(**params)
-    img = generateBaseImage(img, 1.6, 0.5)
+    img = sift.generate_base_image(img, 1.6, 0.5)
 
     gaussianed_images = sift.gaussian_images(img)
     # gaussian_kernels = generateGaussianKernels(1.6, 3)
@@ -52,9 +46,12 @@ def main():
     # ax[i][j].imshow(img_scale, cmap="gray")
     # plt.show()
 
-    key_points_cv, key_points = sift.find_keypoints(dog_images)
+    key_points_cv, key_points = sift.find_keypoints(
+        dog_images,
+        threshold=1e-3,
+        max_tolerance=1,
+    )
     print(f"Total keypoints: {len(key_points)}")
-    print(key_points)
     filtered_key_points = sift.filter_keypoints(dog_images, key_points, threshold=10)
     print(f"Filtered keypoints: {len(filtered_key_points)}")
     end = time()
@@ -82,6 +79,11 @@ def main():
     wwimg = cv.drawKeypoints(gray, key_points_cv, img)
     plt.imshow(wwimg, cmap="gray")
     plt.show()
+
+    gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
+    wwimg = cv.drawKeypoints(gray, filtered_key_points, img)
+    plt.imshow(wwimg, cmap="gray")
+    plt.show()
     # for idx, point_list in enumerate(
     # [
     # (key_points, "Total keypoints"),
@@ -102,6 +104,7 @@ def main():
     sift = cv.SIFT_create()
     gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
     kp = sift.detect(gray, None)
+    print("Number of keypoints OpenCV SIFT:", len(kp))
     img = cv.drawKeypoints(gray, kp, img)
     plt.imshow(img, cmap="gray")
     plt.show()
