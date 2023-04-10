@@ -1,3 +1,4 @@
+from typing import List
 import numpy as np
 from cv2 import (
     INTER_LINEAR,
@@ -52,6 +53,18 @@ class SIFT:
         self.f_scale = f_scale
         self.descriptor_filter_scale_factor = descriptor_filter_scale_factor
         self.descriptor_cutoff_factor = descriptor_cutoff_factor
+
+    def detect(self, image: ndarray) -> list[KeyPoint]:
+        self.generate_base_image(image)
+        self.gaussian_images()
+        self.compute_dog_images()
+        self.find_keypoints()
+        self.filter_keypoints()
+        return self.convert_keypoints()
+
+    def detect_and_compute(self, image: ndarray) -> list[KeyPoint]:
+        self.detect(image)
+        return self.keypoints, self.features
 
     def compute_gaussian_scales(self) -> ndarray:
         """Create a list of gaussian kernels for each octave and scale"""
