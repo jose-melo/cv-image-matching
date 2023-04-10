@@ -1,5 +1,3 @@
-from time import time
-
 import cv2 as cv
 import matplotlib.pyplot as plt
 from numpy import ndarray
