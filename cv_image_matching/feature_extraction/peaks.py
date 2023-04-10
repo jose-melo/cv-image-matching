@@ -264,7 +264,7 @@ def interpolate(x, y, ind=None, width=10, func=gaussian_fit):
     out = []
 
     for i in ind:
-        slice_ = slice(i - width, i + width + 1)
+        slice_ = slice(max(0, i - width), min(i + width + 1, len(x)))
 
         try:
             best_idx = func(x[slice_], y[slice_])
