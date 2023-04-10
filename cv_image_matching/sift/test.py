@@ -17,6 +17,7 @@ def load_image(path: str) -> ndarray:
 def main():
     img = load_image(IMG_PATH)
     img = img.astype("float32")
+    gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
 
     params = {
         "initial_sigma": 1.6,
@@ -38,37 +39,20 @@ def main():
         "descriptor_filter_scale_factor": 0.25,
         "descriptor_cutoff_factor": 2.5,
     }
-    sift = SIFT(**params)
-    img = sift.generate_base_image(img)
+    own_sift = SIFT(**params)
+    own_sift.detect_and_compute(img)
 
-    sift.gaussian_images()
+    sift_opencv = cv.SIFT_create()
+    kp, des = sift_opencv.detectAndCompute(gray, None)
 
-    start = time()
-    sift.compute_dog_images()
+    own_sift_img = cv.drawKeypoints(gray, own_sift.scaled_keypoints, img)
+    opencv_img = cv.drawKeypoints(gray, kp, img)
 
-    sift.find_keypoints()
-    print(f"Total keypoints: {len(sift.keypoints)}")
-    sift.filter_keypoints()
-    print(f"Filtered keypoints: {len(sift.filtered_keypoints)}")
-    end = time()
-    print(f"Time: {end - start} seconds")
-
-    sift.convert_keypoints()
-
-    gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
-    wwimg = cv.drawKeypoints(gray, sift.scaled_keypoints, img)
-
-    sift = cv.SIFT_create()
-    gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
-    kp, des = sift.detectAndCompute(gray, None)
-
-    print("Number of keypoints OpenCV SIFT:", len(kp))
-    img = cv.drawKeypoints(gray, kp, img)
-    fig, ax = plt.subplots(1, 2)
-    ax[0].imshow(wwimg, cmap="gray", label="own")
-    ax[0].set_title("own")
-    ax[1].imshow(img, cmap="gray", label="opencv")
-    ax[1].set_title("opencv")
+    _, ax = plt.subplots(1, 2)
+    ax[0].imshow(own_sift_img, cmap="gray", label="own")
+    ax[0].set_title("Own implementation of SIFT")
+    ax[1].imshow(opencv_img, cmap="gray", label="opencv")
+    ax[1].set_title("Opencv implementation of SIFT")
     plt.show()
 
 
