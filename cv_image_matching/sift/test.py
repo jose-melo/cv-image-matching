@@ -43,15 +43,10 @@ def main():
     end = time()
     print(f"Time: {end - start} seconds")
 
-    hist = sift.calculate_dominant_histogram(dog_images, 1, 2, 30, 30)
-    print(hist)
-
     scaled_keypoints = sift.convert_keypoints(filtered_key_points)
 
     gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
     wwimg = cv.drawKeypoints(gray, scaled_keypoints, img)
-    plt.imshow(wwimg, cmap="gray")
-    plt.show()
 
     # plt.show()
     sift = cv.SIFT_create()
@@ -59,7 +54,11 @@ def main():
     kp = sift.detect(gray, None)
     print("Number of keypoints OpenCV SIFT:", len(kp))
     img = cv.drawKeypoints(gray, kp, img)
-    plt.imshow(img, cmap="gray")
+    fig, ax = plt.subplots(1, 2)
+    ax[0].imshow(wwimg, cmap="gray", label="own")
+    ax[0].set_title("own")
+    ax[1].imshow(img, cmap="gray", label="opencv")
+    ax[1].set_title("opencv")
     plt.show()
 
 

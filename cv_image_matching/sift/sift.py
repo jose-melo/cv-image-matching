@@ -8,7 +8,9 @@ from cv2 import (
     resize,
     subtract,
 )
-from numpy import float32, ndarray, stack
+from numpy import float32, ndarray
+from peaks import interpolate
+from scipy.signal import find_peaks
 
 
 class SIFT:
@@ -319,7 +321,7 @@ class SIFT:
         """
         bound_x, bound_y = dog_images[octave][scale].shape
         if i - 1 < 0 or i + 1 >= bound_x or j - 1 < 0 or j + 1 >= bound_y:
-            return False, None, None
+            return False, None, None, None
 
         hessian_2d, hessian_3d, grad = self.calculate_hessian(
             dog_images,
@@ -332,19 +334,21 @@ class SIFT:
         det_hessian = np.linalg.det(hessian_2d)
 
         if det_hessian <= 0:
-            return False, None, None
+            return False, None, None, None
 
         trace_hessian = np.trace(hessian_2d)
 
         a = (trace_hessian**2) / det_hessian
         a_max = (threshold + 1) ** 2 / threshold
+        d = -1 * np.dot(np.linalg.inv(hessian_3d), grad)
+        response = dog_images[octave][scale][i][j] - 0.5 * np.dot(grad, d)
         # print("Hessian: ", hessian)
         # print("det_hessian: ", det_hessian)
         # print("trace hessian: ", trace_hessian)
         # print("a: ", a)
         # print("a_max: ", a_max)
 
-        return a < a_max, i, j
+        return a < a_max, i, j, response
 
     def filter_keypoints(
         self,
@@ -361,7 +365,7 @@ class SIFT:
         """
         filtered_keypoints = []
         for octave, scale, i, j in keypoints:
-            is_local_max, new_i, new_j = self.is_local_maximum(
+            is_local_max, new_i, new_j, response = self.is_local_maximum(
                 dog_images,
                 octave,
                 scale,
@@ -370,19 +374,21 @@ class SIFT:
                 threshold,
             )
             if is_local_max:
-                # histogram = self.calculate_dominant_histogram(
-                # dog_images,
-                # octave,
-                # scale,
-                # i,
-                # j,
-                # )
+                orientation = self.calculate_orientation(
+                    dog_images,
+                    octave,
+                    scale,
+                    i,
+                    j,
+                )
                 keypoint = KeyPoint()
+                keypoint.response = response
                 keypoint.pt = (
                     new_j * (2**octave),
                     new_i * (2**octave),
                 )
                 keypoint.octave = octave + scale * (2**8)
+                keypoint.angle = orientation
                 keypoint.size = (
                     self.initial_sigma
                     * (2 ** (scale / float32(self.n_scales_per_octave)))
@@ -410,14 +416,16 @@ class SIFT:
 
     def convert_keypoints(self, keypoints):
         """Convert keypoint point, size, and octave to input image size"""
-        return [
-            KeyPoint(
-                *tuple(0.5 * np.array(kp.pt)),
-                0.5 * kp.size,
-                (kp.octave & ~255) | ((kp.octave - 1) & 255),
-            )
-            for kp in keypoints
-        ]
+        new_keypoints = []
+        for kp in keypoints:
+            new_kp = KeyPoint()
+            new_kp.pt = tuple(0.5 * np.array(kp.pt))
+            new_kp.size = 0.5 * kp.size
+            new_kp.angle = kp.angle
+            new_kp.response = kp.response
+            new_kp.octave = (kp.octave & ~255) | ((kp.octave - 1) & 255)
+            new_keypoints.append(new_kp)
+        return new_keypoints
 
     def calculate_dominant_histogram(
         self,
@@ -427,6 +435,10 @@ class SIFT:
         x: int,
         y: int,
     ) -> ndarray:
+        """Calculate the dominant histogram of a keypoint.
+        Returns:
+            ndarray: the smothed histogram of the keypoint.
+        """
         histogram = np.zeros(36)
         window_scale = 1.5 * self.gaussian_scales[scale]
         window_size = int(np.ceil(2.5 * window_scale))
@@ -477,4 +489,16 @@ class SIFT:
             j (int): Column of the keypoint.
         """
         histogram = self.calculate_dominant_histogram(dog_images, octave, scale, x, y)
-        return histogram
+        max_val = np.max(histogram)
+        if max_val <= 1e-8:
+            return 0
+
+        idx = 10 * np.arange(len(histogram))
+        idx = idx.reshape(1, -1)
+        histogram = histogram.reshape(idx.shape).flatten()
+        idx = idx.flatten()
+        # print(histogram)
+        # peaks = find_peaks(histogram)
+        peaks = interpolate(idx, histogram)
+        # print("peaks", peaks)
+        return peaks[0]
