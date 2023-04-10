@@ -9,7 +9,8 @@ from cv2 import (
     subtract,
 )
 from numpy import float32, ndarray
-from peaks import interpolate
+
+from cv_image_matching.feature_extraction.peaks import interpolate
 
 
 class SIFT:
@@ -63,7 +64,7 @@ class SIFT:
 
     def detect_and_compute(self, image: ndarray) -> list[KeyPoint]:
         self.detect(image)
-        return self.keypoints, self.features
+        return self.scaled_keypoints, self.features
 
     def compute_gaussian_scales(self) -> ndarray:
         """Create a list of gaussian kernels for each octave and scale"""
@@ -170,20 +171,17 @@ class SIFT:
 
     def is_keypoint(
         self,
-        dog_images: ndarray,
         octave: int,
         scale: int,
         i: int,
         j: int,
-        threshold: float = 0.01,
-        max_tolerance: int = 1,
     ) -> bool:
         """Check if a pixel is a keypoint (local maximum)."""
 
-        center_pixel = dog_images[octave][scale][i][j]
+        center_pixel = self.dog_images[octave][scale][i][j]
 
         # print(center_pixel, i, j, octave, scale, bound_x, bound_y)
-        if abs(center_pixel) < threshold:
+        if abs(center_pixel) < self.kp_find_threshold:
             return False
 
         count_fails = 0
@@ -191,25 +189,25 @@ class SIFT:
             for y in np.arange(-1, 2):
                 for z in np.arange(-1, 2):
                     # print(dog_images[octave][scale + z][i + x][j + y])
-                    bound_x, bound_y = dog_images[octave][scale + z].shape
+                    bound_x, bound_y = self.dog_images[octave][scale + z].shape
                     if 0 <= i + x < bound_x and 0 <= j + y < bound_y:
                         if x == 0 and y == 0 and z == 0:  # center pixel
                             continue
                         if (
                             center_pixel > 0
                             and center_pixel
-                            < dog_images[octave][scale + z][i + x][j + y]
+                            < self.dog_images[octave][scale + z][i + x][j + y]
                         ):
                             count_fails += 1
-                            if count_fails > max_tolerance:
+                            if count_fails > self.kp_max_tolerance:
                                 return False
                         if (
                             center_pixel < 0
                             and center_pixel
-                            > dog_images[octave][scale + z][i + x][j + y]
+                            > self.dog_images[octave][scale + z][i + x][j + y]
                         ):
                             count_fails += 1
-                            if count_fails > max_tolerance:
+                            if count_fails > self.kp_max_tolerance:
                                 return False
         return True
 
@@ -280,13 +278,18 @@ class SIFT:
     ):
         """Create a keypoint object from the given parameters."""
         keypoint = KeyPoint()
-        keypoint.response = response
+
+        if response:
+            keypoint.response = response
+
+        if orientation:
+            keypoint.angle = orientation
+
         keypoint.pt = (
             j * (2**octave),
             i * (2**octave),
         )
         keypoint.octave = octave + scale * (2**8)
-        keypoint.angle = orientation
         keypoint.size = (
             self.initial_sigma
             * (2 ** (scale / float32(self.n_scales_per_octave)))
@@ -315,6 +318,9 @@ class SIFT:
         if i - 1 < 0 or i + 1 >= bound_x or j - 1 < 0 or j + 1 >= bound_y:
             return i, j
         _, hessian_3d, grad = self.calculate_hessian(octave, scale, i, j)
+
+        if np.linalg.det(hessian_3d) == 0:
+            return i, j
 
         d = -1 * np.dot(np.linalg.inv(hessian_3d), grad)
 
@@ -425,7 +431,7 @@ class SIFT:
         x = int(keypoint.pt[1] / (2**octave))
         return (octave, scale, x, y)
 
-    def _calculate_pixel_response(self, octave, scale, i, j):
+    def _calculate_pixel_response(self, octave, scale, i, j) -> float:
         bound_x, bound_y = self.dog_images[octave][scale].shape
         if i - 1 < 0 or i + 1 >= bound_x or j - 1 < 0 or j + 1 >= bound_y:
             return 0
@@ -436,6 +442,9 @@ class SIFT:
             i,
             j,
         )
+
+        if np.linalg.det(hessian_3d) == 0:
+            return 0
 
         d = -1 * np.dot(np.linalg.inv(hessian_3d), grad)
         response = self.dog_images[octave][scale][i][j] - 0.5 * np.dot(grad, d)
@@ -456,7 +465,7 @@ class SIFT:
             if is_local_max:
                 orientation = self._calculate_orientation(octave, scale, i, j)
                 response = self._calculate_pixel_response(octave, scale, i, j)
-                keypoint = self._create_kp(octave, scale, i, j, response, orientation)
+                keypoint = self._create_kp(octave, scale, i, j, orientation, response)
                 feature_vector = self._make_descriptor(
                     i,
                     j,
@@ -578,11 +587,9 @@ class SIFT:
         idx = idx.reshape(1, -1)
         histogram = histogram.reshape(idx.shape).flatten()
         idx = idx.flatten()
-        # print(histogram)
         # peaks = find_peaks(histogram)
         peaks = interpolate(idx, histogram)
-        # print("peaks", peaks)
-        return peaks[0]
+        return peaks[0] if len(peaks) > 0 else 0
 
     def rotate_point(self, u: float, v: float, angle: float) -> tuple[float, float]:
         """Rotate a point by an angle.

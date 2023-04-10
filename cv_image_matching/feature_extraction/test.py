@@ -1,14 +1,17 @@
 import cv2 as cv
 import matplotlib.pyplot as plt
 from numpy import ndarray
-from sift import SIFT
 
-IMG_PATH = "data/train/notre_dame_front_facade/images/01516300_11234314903.jpg"
+from cv_image_matching.feature_extraction.sift import SIFT
+
 IMG_PATH = "data/index.png"
+IMG_PATH = "data/train/notre_dame_front_facade/images/01516300_11234314903.jpg"
+IMG_PATH = "data/train/notre_dame_front_facade/images/01569849_8047248507.jpg"
 
 
 def load_image(path: str) -> ndarray:
     img = cv.imread(path, cv.IMREAD_GRAYSCALE)
+    img = cv.resize(img, (250, 250))
     return img
 
 
@@ -16,15 +19,16 @@ def main():
     img = load_image(IMG_PATH)
     img = img.astype("float32")
     gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
+    gray = cv.resize(gray, (250, 250))
 
     params = {
+        "kp_find_threshold": 1,
+        "kp_max_tolerance": 0,
+        "local_max_threshold": 10,
         "initial_sigma": 1.6,
         "n_scales_per_octave": 3,
         "n_octaves": 8,
         "assumed_blur": 0.5,
-        "kp_find_threshold": 1e-3,
-        "kp_max_tolerance": 1,
-        "local_max_threshold": 10,
         "gaussian_window_histogram": 1.5,
         "num_bins_histogram": 36,
         "ksize_smooth_histogram": 5,
