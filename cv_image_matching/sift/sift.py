@@ -1,3 +1,4 @@
+from typing import Tuple
 import numpy as np
 from cv2 import (
     INTER_LINEAR,
@@ -10,7 +11,6 @@ from cv2 import (
 )
 from numpy import float32, ndarray
 from peaks import interpolate
-from scipy.signal import find_peaks
 
 
 class SIFT:
@@ -23,6 +23,9 @@ class SIFT:
         self.initial_sigma = initial_sigma
         self.n_scales_per_octave = n_scales_per_octave
         self.n_octaves = n_octaves
+        self.keypoins = None
+        self.keypoints_cv = None
+        self.filtered_keypoints = None
 
     def compute_gaussian_scales(self) -> ndarray:
         """Create a list of gaussian kernels for each octave and scale"""
@@ -364,6 +367,7 @@ class SIFT:
             keypoints (ndarray): Keypoints found in the difference of gaussian images.
         """
         filtered_keypoints = []
+        features = []
         for octave, scale, i, j in keypoints:
             is_local_max, new_i, new_j, response = self.is_local_maximum(
                 dog_images,
@@ -378,8 +382,8 @@ class SIFT:
                     dog_images,
                     octave,
                     scale,
-                    i,
-                    j,
+                    new_i,
+                    new_j,
                 )
                 keypoint = KeyPoint()
                 keypoint.response = response
@@ -394,8 +398,19 @@ class SIFT:
                     * (2 ** (scale / float32(self.n_scales_per_octave)))
                     * (2 ** (octave + 1))
                 )
+                feature_vector = self.make_sift_descriptor_from_keypoint(
+                    dog_images,
+                    new_i,
+                    new_i,
+                    octave,
+                    scale,
+                    orientation,
+                )
+                features.append(feature_vector)
                 filtered_keypoints.append(keypoint)
-        return filtered_keypoints
+        self.filtered_keypoints = filtered_keypoints
+        self.features = features
+        return filtered_keypoints, features
 
     def calculate_gradient(self, dog_image: ndarray, i: int, j: int) -> ndarray:
         """Calculate the gradient of a keypoint.
@@ -502,3 +517,168 @@ class SIFT:
         peaks = interpolate(idx, histogram)
         # print("peaks", peaks)
         return peaks[0]
+
+    def rotate_point(self, u: float, v: float, angle: float) -> tuple[float, float]:
+        """Rotate a point by an angle.
+
+        Args:
+            u (float): x coordinate of the point.
+            v (float): y coordinate of the point.
+            angle (float): Angle to rotate by.
+
+        Returns:
+            Tuple[float, float]: Rotated point.
+        """
+        return (
+            u * np.cos(angle) - v * np.sin(angle),
+            u * np.sin(angle) + v * np.cos(angle),
+        )
+
+    def make_sift_descriptor_from_keypoint(
+        self,
+        dog_images: ndarray,
+        x: int,
+        y: int,
+        octave: int,
+        scale: int,
+        orientation: float,
+        size_factor: float = 5,
+        n_spacial_bins: int = 4,
+        n_orientation_bins: int = 8,
+        f_max: float = 0.2,
+        f_scale: float = 512,
+    ) -> ndarray:
+        """Make a sift descriptor from a keypoint."""
+
+        m, n = dog_images[octave][scale].shape
+
+        window_size = size_factor * scale
+        filter_scale = 0.25 * window_size
+        cutoff_radius = 2.5 * filter_scale
+
+        u_min = max(int(np.floor(x - cutoff_radius)), 1)
+        u_max = min(int(np.ceil(x + cutoff_radius)), m - 2) + 1
+        v_min = max(int(np.floor(y - cutoff_radius)), 1)
+        v_max = min(int(np.ceil(y + cutoff_radius)), n - 2) + 1
+
+        histogram_3d = np.zeros((n_orientation_bins, n_spacial_bins, n_spacial_bins))
+
+        for u in range(u_min, u_max):
+            for v in range(v_min, v_max):
+                dist = np.sqrt((u - x) ** 2 + (v - y) ** 2)
+                # Skip if the point is outside the cutoff radius
+                if dist > cutoff_radius:
+                    continue
+
+                # Rotate the point (u, v) by orientation
+                new_u, new_v = self.rotate_point(
+                    u - x,
+                    v - y,
+                    orientation,
+                )
+                new_u = (1 / window_size) * new_u
+                new_v = (1 / window_size) * new_v
+
+                # Calculate the gradient magnitude and orientation
+                e, phi = self.calculate_gradient(dog_images[octave][scale], u, v)
+                new_phi = phi - orientation
+                while new_phi < 0:
+                    new_phi += 2 * np.pi
+
+                w = np.exp(dist**2 / (-2 * filter_scale**2))
+                z = w * e
+
+                # Update the histogram
+                self.update_histogram(
+                    histogram_3d,
+                    new_u,
+                    new_v,
+                    new_phi,
+                    z,
+                    n_spacial_bins,
+                    n_orientation_bins,
+                )
+
+        feature_vector = histogram_3d.flatten()
+
+        # Normalize the feature vector
+        feature_vector = feature_vector / np.linalg.norm(feature_vector)
+
+        # Clip the feature vector
+        feature_vector = np.clip(feature_vector, 0, f_max)
+
+        # Normalize the feature vector again
+        feature_vector = feature_vector / np.linalg.norm(feature_vector)
+
+        # Convert to byte
+        feature_vector = (f_scale * feature_vector).astype(np.uint8)
+
+        return feature_vector
+
+    def update_histogram(
+        self,
+        histogram_3d: ndarray,
+        u: float,
+        v: float,
+        phi: float,
+        z: float,
+        n_spacial_bins: int,
+        n_orientation_bins: int,
+    ):
+        """Update the histogram.
+
+        Args:
+            histogram_3d (ndarray): gradient histogram of size (n_orientation_bins,
+            n_spacial_bins, n_spacial_bins)
+            u (float): normalized x coordinate of the point.
+            v (float): normalized y coordinate of the point.
+            phi (float): normalized orientation of the point.
+            z (float): quantitity to add to the histogram.
+            n_spacial_bins (int): number of spacial bins.
+            n_orientation_bins (int): number of orientation bins.
+        """
+        # Calculate the new indices
+        new_i = n_spacial_bins * u + 0.5 * (n_spacial_bins - 1)
+        new_j = n_spacial_bins * v + 0.5 * (n_spacial_bins - 1)
+        new_k = n_orientation_bins * phi / (2 * np.pi)
+
+        # Calculate the indices of the 8 surrounding bins
+        i_0 = int(np.floor(new_i))
+        i_1 = i_0 + 1
+        i = [i_0, i_1]
+
+        j_0 = int(np.floor(new_j))
+        j_1 = j_0 + 1
+        j = [j_0, j_1]
+
+        k_0 = int(np.floor(new_k)) % n_orientation_bins
+        k_1 = (k_0 + 1) % n_orientation_bins
+        k = [k_0, k_1]
+
+        # Calculate the weights
+        alpha_0 = i_1 - new_i
+        alpha_1 = 1 - alpha_0
+        alpha = [alpha_0, alpha_1]
+
+        beta_0 = j_1 - new_j
+        beta_1 = 1 - beta_0
+        beta = [beta_0, beta_1]
+
+        gamma_0 = 1 - (new_k - np.floor(new_k))
+        gamma_1 = 1 - gamma_0
+        gamma = [gamma_0, gamma_1]
+
+        # Update the histogram
+        for ii in i:
+            for jj in j:
+                for kk in k:
+                    for aa in alpha:
+                        for bb in beta:
+                            for gg in gamma:
+                                if (
+                                    ii >= 0
+                                    and ii < n_spacial_bins
+                                    and jj >= 0
+                                    and jj < n_spacial_bins
+                                ):
+                                    histogram_3d[kk][ii][jj] += aa * bb * gg * z

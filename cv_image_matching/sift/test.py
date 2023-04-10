@@ -38,7 +38,11 @@ def main():
         max_tolerance=1,
     )
     print(f"Total keypoints: {len(key_points)}")
-    filtered_key_points = sift.filter_keypoints(dog_images, key_points, threshold=10)
+    filtered_key_points, features = sift.filter_keypoints(
+        dog_images,
+        key_points,
+        threshold=10,
+    )
     print(f"Filtered keypoints: {len(filtered_key_points)}")
     end = time()
     print(f"Time: {end - start} seconds")
@@ -51,7 +55,8 @@ def main():
     # plt.show()
     sift = cv.SIFT_create()
     gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
-    kp = sift.detect(gray, None)
+    kp, des = sift.detectAndCompute(gray, None)
+
     print("Number of keypoints OpenCV SIFT:", len(kp))
     img = cv.drawKeypoints(gray, kp, img)
     fig, ax = plt.subplots(1, 2)
