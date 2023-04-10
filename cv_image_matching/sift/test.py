@@ -11,9 +11,6 @@ IMG_PATH = "../../cv-image-matching/data/index.png"
 
 def load_image(path: str) -> ndarray:
     img = cv.imread(path, cv.IMREAD_GRAYSCALE)
-    # print("Image shape:", img.shape)
-    # plt.imshow(img, cmap="gray")
-    # plt.show()
     return img
 
 
@@ -28,7 +25,7 @@ def main():
         "assumed_blur": 0.5,
         "kp_find_threshold": 1e-3,
         "kp_max_tolerance": 1,
-        "local_max_threshold": 5.0,
+        "local_max_threshold": 10,
         "gaussian_window_histogram": 1.5,
         "num_bins_histogram": 36,
         "ksize_smooth_histogram": 5,
@@ -38,6 +35,8 @@ def main():
         "n_orientation_bins": 8,
         "f_max": 0.2,
         "f_scale": 512,
+        "descriptor_filter_scale_factor": 0.25,
+        "descriptor_cutoff_factor": 2.5,
     }
     sift = SIFT(**params)
     img = sift.generate_base_image(img)
@@ -45,24 +44,20 @@ def main():
     sift.gaussian_images()
 
     start = time()
-    dog_images = sift.compute_dog_images()
+    sift.compute_dog_images()
 
-    key_points_cv, key_points = sift.find_keypoints(dog_images)
-    print(f"Total keypoints: {len(key_points)}")
-    filtered_key_points, features = sift.filter_keypoints(
-        dog_images,
-        threshold=10,
-    )
-    print(f"Filtered keypoints: {len(filtered_key_points)}")
+    sift.find_keypoints()
+    print(f"Total keypoints: {len(sift.keypoints)}")
+    sift.filter_keypoints()
+    print(f"Filtered keypoints: {len(sift.filtered_keypoints)}")
     end = time()
     print(f"Time: {end - start} seconds")
 
-    scaled_keypoints = sift.convert_keypoints(filtered_key_points)
+    sift.convert_keypoints()
 
     gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
-    wwimg = cv.drawKeypoints(gray, scaled_keypoints, img)
+    wwimg = cv.drawKeypoints(gray, sift.scaled_keypoints, img)
 
-    # plt.show()
     sift = cv.SIFT_create()
     gray = cv.cvtColor(cv.imread(IMG_PATH), cv.COLOR_BGR2GRAY)
     kp, des = sift.detectAndCompute(gray, None)
