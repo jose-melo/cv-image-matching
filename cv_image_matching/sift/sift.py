@@ -370,6 +370,13 @@ class SIFT:
                 threshold,
             )
             if is_local_max:
+                # histogram = self.calculate_dominant_histogram(
+                # dog_images,
+                # octave,
+                # scale,
+                # i,
+                # j,
+                # )
                 keypoint = KeyPoint()
                 keypoint.pt = (
                     new_j * (2**octave),
@@ -401,6 +408,17 @@ class SIFT:
         phi = np.arctan2(dy, dx)
         return e, phi
 
+    def convert_keypoints(self, keypoints):
+        """Convert keypoint point, size, and octave to input image size"""
+        return [
+            KeyPoint(
+                *tuple(0.5 * np.array(kp.pt)),
+                0.5 * kp.size,
+                (kp.octave & ~255) | ((kp.octave - 1) & 255),
+            )
+            for kp in keypoints
+        ]
+
     def calculate_dominant_histogram(
         self,
         dog_images: ndarray,
@@ -430,15 +448,12 @@ class SIFT:
                 w = np.exp(
                     -0.5
                     * ((uu[i][j] - x) ** 2 + (vv[i][j] - y) ** 2)
-                    / window_scale**2
+                    / window_scale**2,
                 )
                 z = w * e
-
                 histogram[k_0] += (1 - alpha) * z
                 histogram[k_1] += alpha * z
-        print(histogram)
         histogram = self._smooth_histogram(histogram)
-        print(histogram)
         return histogram
 
     def _smooth_histogram(self, hist: ndarray) -> ndarray:
@@ -447,7 +462,12 @@ class SIFT:
         return filter2D(hist, -1, kernel)
 
     def calculate_orientation(
-        self, dog_images: ndarray, octave: int, scale: int, x: int, y: int
+        self,
+        dog_images: ndarray,
+        octave: int,
+        scale: int,
+        x: int,
+        y: int,
     ) -> ndarray:
         """Calculate the orientation of a keypoint.
 
