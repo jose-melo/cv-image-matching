@@ -97,27 +97,32 @@ class SIFT:
             self.compute_gaussian_scales()
 
         gaussianed_images = {}
+        shape = self.base_image.shape
+        image = self.base_image.copy()
 
         for octave in range(self.n_octaves):
-            gaussianed_images[octave] = {}
+            gaussianed_images[octave] = np.empty(
+                (self.n_intervals, *shape),
+                dtype=np.float64,
+            )
 
-            gaussianed_images[octave][0] = self.base_image
+            gaussianed_images[octave][0] = image
             for idx, scale in enumerate(self.gaussian_scales[1:]):
                 new_image = GaussianBlur(
-                    self.base_image,
+                    image,
                     (0, 0),
                     sigmaX=scale,
                     sigmaY=scale,
                 )
                 gaussianed_images[octave][idx + 1] = new_image
 
-            self.base_image = resize(
+            shape = (shape[0] // 2, shape[1] // 2)
+            image = resize(
                 gaussianed_images[octave][idx - 2],
-                (self.base_image.shape[1] // 2, self.base_image.shape[0] // 2),
+                shape,
             )
 
         self.gaussianed_images = gaussianed_images
-
         return gaussianed_images
 
     def generate_base_image(self, image: np.ndarray) -> np.ndarray:
@@ -158,15 +163,18 @@ class SIFT:
             gaussianed_images_error = "Please generate the gaussianed images first"
             raise AttributeError(gaussianed_images_error)
 
+        shape = self.base_image.shape
         dog_images = {}
         for octave in range(self.n_octaves):
-            dog_images[octave] = {}
+            dog_images[octave] = np.empty((self.n_intervals - 1, *shape))
             for scale in range(self.n_intervals - 1):
                 dog_images[octave][scale] = subtract(
                     self.gaussianed_images[octave][scale + 1],
                     self.gaussianed_images[octave][scale],
                 )
+            shape = (shape[0] // 2, shape[1] // 2)
         self.dog_images = dog_images
+
         return dog_images
 
     def is_keypoint(
