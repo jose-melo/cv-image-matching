@@ -110,44 +110,54 @@ def run_evaluation(
     img1_path = src + "/" + folder + "/images/" + img1_id + ".jpg"
     img2_path = src + "/" + folder + "/images/" + img2_id + ".jpg"
 
-    err_q_own, err_t_own, err_q_opencv, err_t_opencv = get_errors_for_case(
+    (
+        err_f_own,
+        err_f_opencv,
+        err_q_own,
+        err_t_own,
+        err_q_opencv,
+        err_t_opencv,
+    ) = get_errors_for_case(
         params,
+        folder,
+        idx,
         img1_path,
         img2_path,
         img_size,
         src,
         img1_id,
         img2_id,
+        data,
         show,
     )
 
-    print("Own: ", err_q_own, err_t_own)
-    print("OpenCV: ", err_q_opencv, err_t_opencv)
-    return err_q_own, err_t_own, err_q_opencv, err_t_opencv
+    return err_f_own, err_f_opencv, err_q_own, err_t_own, err_q_opencv, err_t_opencv
 
 
 def get_errors_for_case(
     params: dict,
+    folder: str,
+    idx: int,
     img1_path: str,
     img2_path: str,
     img_size: tuple[int, int],
     src: str,
     img1_id: str,
     img2_id: str,
+    data: pd.DataFrame,
     show: bool = False,
-) -> tuple[float, float, float, float]:
+) -> tuple[float, float, float, float, float, float]:
     """Calculates the fundamental matrices and generate the errors for the given case.
 
     Args:
         img1_path (str): Path of the first image.
         img2_path (str): Path of the second image.
-        r1 (ndarray): Rotation matrix of the first camera.
-        r2 (ndarray): Rotation matrix of the second camera.
-        t1 (ndarray): Translation matrix of the first camera.
-        t2 (ndarray): Translation matrix of the second camera.
-        k1 (ndarray): Intrinsics matrix of the first camera.
-        k2 (ndarray): Intrinsics matrix of the second camera.
-        scale (float): Scaling factor of the scene.
+        img_size (tuple[int, int]): Size of the images.
+        src (str): Source path of the data.
+        img1_id (str): Id of the first image.
+        img2_id (str): Id of the second image.
+        data (pd.DataFrame): Dataframe with the data.
+        show (bool, optional): Wheter or not to plot images. Defaults to False.
 
     Returns:
         tuple[float, float, float, float]:
@@ -194,45 +204,10 @@ def get_errors_for_case(
         kp2_cv,
         scale,
     )
+    f_true = np.array(
+        [float(x) for x in data.iloc[idx]["fundamental_matrix"].split(" ")],
+    )
+    err_f_own = np.linalg.norm(f_own.ravel() - f_true)
+    err_f_cv = np.linalg.norm(f_opencv.ravel() - f_true)
 
-    return err_q_own, err_t_own, err_q_opencv, err_t_opencv
-
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(r"--show", action="store_true")
-    parser.add_argument(r"--idx", type=int, default=-1)
-    parser.add_argument(r"--folder", type=str, default="notre_dame_front_facade")
-    parser.add_argument(r"--src", type=str, default="data/train")
-    parser.add_argument(r"--image_size", type=int, nargs=2, default=(200, 200))
-
-    args, _ = parser.parse_known_args()
-
-    folder = args.folder
-    src = args.src
-    image_size = args.image_size
-    idx = args.idx
-    show = args.show
-
-    params_sift = {
-        "kp_find_threshold": 1,
-        "kp_max_tolerance": 0,
-        "local_max_threshold": 10,
-        "initial_sigma": 1.6,
-        "n_scales_per_octave": 3,
-        "n_octaves": 8,
-        "assumed_blur": 0.5,
-        "gaussian_window_histogram": 1.5,
-        "num_bins_histogram": 180,
-        "ksize_smooth_histogram": 5,
-        "std_smooth_histogram": 1,
-        "size_factor": 5,
-        "n_spacial_bins": 4,
-        "n_orientation_bins": 8,
-        "f_max": 0.2,
-        "f_scale": 512,
-        "descriptor_filter_scale_factor": 0.25,
-        "descriptor_cutoff_factor": 2.5,
-    }
-
-    run_evaluation(folder, src, params_sift, idx, image_size, show=show)
+    return err_f_own, err_f_cv, err_q_own, err_t_own, err_q_opencv, err_t_opencv
