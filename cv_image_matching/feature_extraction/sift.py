@@ -102,7 +102,7 @@ class SIFT:
 
         for octave in range(self.n_octaves):
             gaussianed_images[octave] = np.empty(
-                (self.n_intervals, *shape),
+                (self.n_intervals, shape[0], shape[1]),
                 dtype=np.float64,
             )
 
@@ -119,7 +119,7 @@ class SIFT:
             shape = (shape[0] // 2, shape[1] // 2)
             image = resize(
                 gaussianed_images[octave][idx - 2],
-                shape,
+                dsize=(shape[1], shape[0]),
             )
 
         self.gaussianed_images = gaussianed_images
@@ -297,7 +297,7 @@ class SIFT:
             j * (2**octave),
             i * (2**octave),
         )
-        keypoint.octave = octave + scale * (2**8)
+        keypoint.octave = octave  # + scale * (2**8)
         keypoint.size = (
             self.initial_sigma
             * (2 ** (scale / float32(self.n_scales_per_octave)))
@@ -484,10 +484,11 @@ class SIFT:
                 features.append(feature_vector)
                 filtered_keypoints.append(keypoint)
         self.filtered_keypoints = filtered_keypoints
+        features = np.array(features).astype(np.float32)
         self.features = features
         return filtered_keypoints, features
 
-    def _calculate_gradient_in_polar(
+    def _calculate_gradient_in_polar_gaussian(
         self,
         octave: int,
         scale: int,
@@ -503,12 +504,48 @@ class SIFT:
             i (int): Row of the keypoint.
             j (int): Column of the keypoint.
         """
+        if i - 1 < 0 or i + 1 >= self.gaussianed_images[octave][scale].shape[0]:
+            return 0, 0
+
+        if j - 1 < 0 or j + 1 >= self.gaussianed_images[octave][scale].shape[1]:
+            return 0, 0
+
+        gaussian_image = self.gaussianed_images[octave][scale]
+        dx = 0.5 * (gaussian_image[i][j + 1] - gaussian_image[i][j - 1])
+        dy = 0.5 * (gaussian_image[i + 1][j] - gaussian_image[i - 1][j])
+
+        e = np.sqrt(dx**2 + dy**2)
+        phi = np.arctan2(dy, dx) + np.pi
+        return e, phi
+
+    def _calculate_gradient_in_polar_dog(
+        self,
+        octave: int,
+        scale: int,
+        i: int,
+        j: int,
+    ) -> ndarray:
+        """Calculate the gradient of a keypoint.
+
+        Returns: Polar coordinates of the gradient.
+
+        Args:
+            image (ndarray): Image.
+            i (int): Row of the keypoint.
+            j (int): Column of the keypoint.
+        """
+        if i - 1 < 0 or i + 1 >= self.dog_images[octave][scale].shape[0]:
+            return 0, 0
+
+        if j - 1 < 0 or j + 1 >= self.dog_images[octave][scale].shape[1]:
+            return 0, 0
+
         dog_image = self.dog_images[octave][scale]
         dx = 0.5 * (dog_image[i][j + 1] - dog_image[i][j - 1])
         dy = 0.5 * (dog_image[i + 1][j] - dog_image[i - 1][j])
 
         e = np.sqrt(dx**2 + dy**2)
-        phi = np.arctan2(dy, dx)
+        phi = np.arctan2(dy, dx) + np.pi
         return e, phi
 
     def convert_keypoints(self):
@@ -520,9 +557,9 @@ class SIFT:
             new_kp.size = 0.5 * kp.size
             new_kp.angle = kp.angle
             new_kp.response = kp.response
-            new_kp.octave = (kp.octave & ~255) | ((kp.octave - 1) & 255)
+            new_kp.octave = kp.octave
             new_keypoints.append(new_kp)
-        self.scaled_keypoints = new_keypoints
+        self.scaled_keypoints = tuple(new_keypoints)
         return new_keypoints
 
     def _calculate_dominant_histogram(
@@ -540,27 +577,35 @@ class SIFT:
         window_scale = self.gaussian_window_histogram * self.gaussian_scales[scale]
         window_size = int(np.ceil(2.5 * window_scale))
 
-        e, phi = self._calculate_gradient_in_polar(octave, scale, x, y)
-
         u = np.arange(-window_size, window_size)
         v = np.arange(-window_size, window_size)
         uu, vv = np.meshgrid(u, v)
         for i in range(2 * window_size):
             for j in range(2 * window_size):
-                kappa_phi = self.num_bins_histogram / (2 * np.pi) * phi
-
+                e, phi = self._calculate_gradient_in_polar_dog(
+                    octave,
+                    scale,
+                    x + uu[i][j],
+                    y + vv[i][j],
+                )
+                kappa_phi = (self.num_bins_histogram * phi) / (2 * np.pi)
                 k_0 = int(np.floor(kappa_phi)) % self.num_bins_histogram
                 k_1 = int(np.floor(kappa_phi) + 1) % self.num_bins_histogram
-
                 alpha = kappa_phi - np.floor(kappa_phi)
                 w = np.exp(
-                    -0.5
-                    * ((uu[i][j] - x) ** 2 + (vv[i][j] - y) ** 2)
-                    / window_scale**2,
+                    -0.5 * ((uu[i][j]) ** 2 + (vv[i][j]) ** 2) / window_scale**2,
                 )
                 z = w * e
+
                 histogram[k_0] += (1 - alpha) * z
                 histogram[k_1] += alpha * z
+
+                # if (x, y) == (89, 23):
+                # print("e", e)
+                # print("phi", phi * 180 / np.pi)
+
+        # if (x, y) == (89, 23):
+        # lajshdf
         histogram = self._smooth_histogram(histogram)
         return histogram
 
@@ -587,17 +632,27 @@ class SIFT:
             j (int): Column of the keypoint.
         """
         histogram = self._calculate_dominant_histogram(octave, scale, x, y)
-        max_val = np.max(histogram)
-        if max_val <= 1e-8:
+        if np.max(histogram) <= 1e-8:
             return 0
 
-        idx = 10 * np.arange(len(histogram))
+        idx = (360 // self.num_bins_histogram) * np.arange(len(histogram))
         idx = idx.reshape(1, -1)
         histogram = histogram.reshape(idx.shape).flatten()
         idx = idx.flatten()
-        # peaks = find_peaks(histogram)
-        peaks = interpolate(idx, histogram)
-        return peaks[0] if len(peaks) > 0 else 0
+        max_idx = np.argmax(histogram)
+        if max_idx >= self.num_bins_histogram - 2 or max_idx <= 1:
+            orientation = max_idx * (360 / self.num_bins_histogram)
+        else:
+            peaks = interpolate(idx, histogram, ind=[max_idx], width=2)
+            orientation = peaks[0] if len(peaks) > 0 else 0
+        # if y == int((2 * 46) / 2**2) and x == int((2 * 178) / 2**2):
+        # print(octave, scale, x, y, orientation)
+        # import matplotlib.pyplot as plt
+
+        # print(histogram)
+        # plt.plot(idx, histogram)
+        # plt.show()
+        return orientation
 
     def rotate_point(self, u: float, v: float, angle: float) -> tuple[float, float]:
         """Rotate a point by an angle.
@@ -627,7 +682,7 @@ class SIFT:
 
         m, n = self.dog_images[octave][scale].shape
 
-        window_size = self.size_factor * scale
+        window_size = self.size_factor * self.gaussian_scales[scale]
         filter_scale = self.descriptor_filter_scale_factor * window_size
         cutoff_radius = self.descriptor_cutoff_factor * filter_scale
 
@@ -635,9 +690,10 @@ class SIFT:
         u_max = min(int(np.ceil(x + cutoff_radius)), m - 2) + 1
         v_min = max(int(np.floor(y - cutoff_radius)), 1)
         v_max = min(int(np.ceil(y + cutoff_radius)), n - 2) + 1
+        # if y == int((2 * 46) / 2**2) and x == int((2 * 178) / 2**2):
 
         histogram_3d = np.zeros(
-            (self.n_orientation_bins, self.n_spacial_bins, self.n_spacial_bins),
+            (self.n_spacial_bins, self.n_spacial_bins, self.n_orientation_bins),
         )
 
         for u in range(u_min, u_max):
@@ -651,15 +707,15 @@ class SIFT:
                 new_u, new_v = self.rotate_point(
                     u - x,
                     v - y,
-                    orientation,
+                    -orientation * (np.pi / 180),
                 )
                 new_u = (1 / window_size) * new_u
                 new_v = (1 / window_size) * new_v
 
                 # Calculate the gradient magnitude and orientation
-                e, phi = self._calculate_gradient_in_polar(octave, scale, u, v)
-                new_phi = phi - orientation
-                while new_phi < 0:
+                e, phi = self._calculate_gradient_in_polar_gaussian(octave, scale, u, v)
+                new_phi = phi - (orientation * (np.pi / 180))
+                if new_phi < 0:
                     new_phi += 2 * np.pi
 
                 w = np.exp(dist**2 / (-2 * filter_scale**2))
@@ -750,4 +806,4 @@ class SIFT:
                                     and jj >= 0
                                     and jj < self.n_spacial_bins
                                 ):
-                                    histogram_3d[kk][ii][jj] += aa * bb * gg * z
+                                    histogram_3d[ii][jj][kk] += aa * bb * gg * z
