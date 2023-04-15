@@ -1,3 +1,5 @@
+import argparse
+
 import cv2 as cv
 import numpy as np
 import pandas as pd
@@ -19,6 +21,7 @@ from cv_image_matching.utils.utils import (
 def find_fund_matrix(
     img1_path: str,
     img2_path: str,
+    img_size: tuple[int, int],
     params: dict,
     show: bool = False,
 ) -> tuple[ndarray, ndarray, ndarray, ndarray, ndarray, ndarray]:
@@ -27,6 +30,7 @@ def find_fund_matrix(
     Args:
         img1_path (str): Path to image 1
         img2_path (str): Path to image 2
+        img_size (tuple[int, int]): Size of the images
         params (dict): Parameters for SIFT
         show (bool, optional): Wheter or not to plot the images. Defaults to False.
 
@@ -38,6 +42,7 @@ def find_fund_matrix(
     gray1, gray2, resized_img1, resized_img2 = get_images(
         img1_path,
         img2_path,
+        img_size,
         show,
     )
 
@@ -77,15 +82,20 @@ def run_evaluation(
     src: str,
     params: dict,
     idx: int = -1,
+    img_size: tuple[int, int] = (200, 200),
     show: bool = False,
-):
+) -> tuple[float, float, float, float]:
     """Run evaluation on a given scene and index.
 
     Args:
         folder (str): Path to the scene folder
         idx (int, optional): Index of the case to be treated. Defaults to -1.
         show (bool, optional): Wheter or not to plot images. Defaults to False.
+        img_size (tuple[int, int], optional): Size of the images. Defaults to (200, 200)
         src (str, optional): Source path of the data.
+    Returns:
+        tuple[float, float, float, float]:
+            The errors (translation and rotation)
     """
     data_path = src + "/" + folder + "/pair_covisibility.csv"
     data = pd.read_csv(data_path)
@@ -104,6 +114,7 @@ def run_evaluation(
         params,
         img1_path,
         img2_path,
+        img_size,
         src,
         img1_id,
         img2_id,
@@ -112,12 +123,14 @@ def run_evaluation(
 
     print("Own: ", err_q_own, err_t_own)
     print("OpenCV: ", err_q_opencv, err_t_opencv)
+    return err_q_own, err_t_own, err_q_opencv, err_t_opencv
 
 
 def get_errors_for_case(
     params: dict,
     img1_path: str,
     img2_path: str,
+    img_size: tuple[int, int],
     src: str,
     img1_id: str,
     img2_id: str,
@@ -151,6 +164,7 @@ def get_errors_for_case(
     f_own, f_opencv, kp1_own, kp2_own, kp1_cv, kp2_cv = find_fund_matrix(
         img1_path,
         img2_path,
+        img_size,
         params,
         show,
     )
@@ -167,6 +181,7 @@ def get_errors_for_case(
         kp2_own,
         scale,
     )
+
     err_q_opencv, err_t_opencv = compute_errors(
         f_opencv,
         k1,
@@ -184,10 +199,20 @@ def get_errors_for_case(
 
 
 if __name__ == "__main__":
-    folder = "notre_dame_front_facade"
-    src = "data/train"
-    image_size = (200, 200)
-    idx = 0
+    parser = argparse.ArgumentParser()
+    parser.add_argument(r"--show", action="store_true")
+    parser.add_argument(r"--idx", type=int, default=-1)
+    parser.add_argument(r"--folder", type=str, default="notre_dame_front_facade")
+    parser.add_argument(r"--src", type=str, default="data/train")
+    parser.add_argument(r"--image_size", type=int, nargs=2, default=(200, 200))
+
+    args, _ = parser.parse_known_args()
+
+    folder = args.folder
+    src = args.src
+    image_size = args.image_size
+    idx = args.idx
+    show = args.show
 
     params_sift = {
         "kp_find_threshold": 1,
@@ -210,4 +235,4 @@ if __name__ == "__main__":
         "descriptor_cutoff_factor": 2.5,
     }
 
-    run_evaluation(folder, src, params_sift, idx, show=False)
+    run_evaluation(folder, src, params_sift, idx, image_size, show=show)

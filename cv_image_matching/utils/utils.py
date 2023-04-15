@@ -8,22 +8,20 @@ from numpy import ndarray
 
 from cv_image_matching.feature_extraction.sift import SIFT
 
-IMAGE_SIZE = (200, 200)
-
 
 def get_images(
     img1_path: str,
     img2_path: str,
+    image_size: tuple[int, int] = (200, 200),
     show: bool = False,
-    image_size: tuple = IMAGE_SIZE,
 ) -> tuple[ndarray, ndarray, ndarray, ndarray]:
     """Get images and resize them
 
     Args:
         img1_path (str): Path to image 1
         img2_path (str): Path to image 2
-        show (bool, optional): Wheter or not to plot the images. Defaults to False.
         image_size (tuple, optional): Final size of the images. Defaults to IMAGE_SIZE.
+        show (bool, optional): Wheter or not to plot the images. Defaults to False.
 
     Returns:
         tuple[ndarray, ndarray, ndarray, ndarray]:
