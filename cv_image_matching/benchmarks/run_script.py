@@ -9,6 +9,12 @@ if __name__ == "__main__":
     parser.add_argument(r"--folder", type=str, default="notre_dame_front_facade")
     parser.add_argument(r"--src", type=str, default="data/train")
     parser.add_argument(r"--image_size", type=int, nargs=2, default=(200, 200))
+    parser.add_argument(
+        r"--experiments",
+        type=str,
+        nargs="+",
+        default=["own_sift", "opencv_sift", "superglue"],
+    )
 
     args, _ = parser.parse_known_args()
 
@@ -17,6 +23,7 @@ if __name__ == "__main__":
     image_size = args.image_size
     idx = args.idx
     show = args.show
+    experiments = args.experiments
 
     params_sift = {
         "kp_find_threshold": 1,
@@ -39,21 +46,18 @@ if __name__ == "__main__":
         "descriptor_cutoff_factor": 2.5,
     }
 
-    (
-        err_f_own,
-        err_f_opencv,
-        err_q_own,
-        err_t_own,
-        err_q_opencv,
-        err_t_opencv,
-    ) = run_evaluation(
+    errors = run_evaluation(
         folder,
         src,
         params_sift,
+        experiments,
         idx,
         image_size,
         show=show,
     )
 
-    print("Own: ", err_q_own, err_t_own, err_f_own)
-    print("OpenCV: ", err_q_opencv, err_t_opencv, err_f_opencv)
+    for exp, err in errors.items():
+        print(f"{exp}: ", end=" ")
+        for name, e in err.items():
+            print(f"{name}: {e:.2f}", end=" ")
+        print()

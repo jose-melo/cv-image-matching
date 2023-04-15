@@ -107,8 +107,7 @@ def plot_keypoints(
     resized_img2: ndarray,
     kp1: ndarray,
     kp2: ndarray,
-    kp1_cv: ndarray,
-    kp2_cv: ndarray,
+    experiment: str = "Own SIFT",
 ):
     """Plot the keypoints of the two images
 
@@ -122,24 +121,16 @@ def plot_keypoints(
         kp1_cv (ndarray): Key points of image 1 using OpenCV
         kp2_cv (ndarray): Key points of image 2 using OpenCV
     """
-    _, ax = plt.subplots(2, 2)
+    _, ax = plt.subplots(1, 2)
     sift_img1 = resized_img1.copy()
     cv.drawKeypoints(gray1, kp1, sift_img1)
     sift_img2 = resized_img2.copy()
     cv.drawKeypoints(gray2, kp2, sift_img2)
-    sift_img1_cv = resized_img1.copy()
-    cv.drawKeypoints(gray1, kp1_cv, sift_img1_cv)
-    sift_img2_cv = resized_img2.copy()
-    cv.drawKeypoints(gray2, kp2_cv, sift_img2_cv)
 
-    ax[0][0].imshow(sift_img1, cmap="gray")
-    ax[0][0].set_title("Own SIFT: First Image")
-    ax[0][1].imshow(sift_img2, cmap="gray")
-    ax[0][1].set_title("Own SIFT: Second Image")
-    ax[1][0].imshow(sift_img1_cv, cmap="gray")
-    ax[1][0].set_title("OpenCV SIFT: First Image")
-    ax[1][1].imshow(sift_img2_cv, cmap="gray")
-    ax[1][1].set_title("OpenCV SIFT: Second Image")
+    ax[0].imshow(sift_img1, cmap="gray")
+    ax[0].set_title(f"{experiment} keypoints Image 1")
+    ax[1].imshow(sift_img2, cmap="gray")
+    ax[1].set_title(f"{experiment} keypoints Image 2")
     plt.show()
 
 

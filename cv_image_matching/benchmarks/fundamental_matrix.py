@@ -1,6 +1,9 @@
+import time
+
 import cv2 as cv
 import numpy as np
 import pandas as pd
+import torch
 from numpy import ndarray
 
 from cv_image_matching.utils.profiler import profile
@@ -13,6 +16,7 @@ from cv_image_matching.utils.utils import (
     plot_keypoints,
     run_feature_extracion_own,
 )
+from models.matching import Matching
 
 
 @profile(sort_by="cumulative", lines_to_print=50, strip_dirs=True)
@@ -20,9 +24,10 @@ def find_fund_matrix(
     img1_path: str,
     img2_path: str,
     img_size: tuple[int, int],
-    params: dict,
+    experiment: str = "own",
+    params: dict = None,
     show: bool = False,
-) -> tuple[ndarray, ndarray, ndarray, ndarray, ndarray, ndarray]:
+) -> dict[str, ndarray]:
     """Find fundamental matrix using own implementation and opencv implementation
 
     Args:
@@ -44,45 +49,82 @@ def find_fund_matrix(
         show,
     )
 
-    kp1, des1, kp2, des2 = run_feature_extracion_own(gray1, gray2, params)
+    # Own SIFT
+    if experiment == "own_sift":
+        kp1, des1, kp2, des2 = run_feature_extracion_own(gray1, gray2, params)
+        matches = get_matches(des1, des2)
+        f, kp1, kp2 = get_fund_matrix_from_matches(kp1, kp2, matches)
 
-    sift_opencv = cv.SIFT_create()
-    kp1_cv, des1_cv = sift_opencv.detectAndCompute(resized_img1.copy(), None)
-    kp2_cv, des2_cv = sift_opencv.detectAndCompute(resized_img2.copy(), None)
+    # OpenCV SIFT
+    if experiment == "opencv_sift":
+        sift_opencv = cv.SIFT_create()
+        kp1, des1 = sift_opencv.detectAndCompute(resized_img1.copy(), None)
+        kp2, des2 = sift_opencv.detectAndCompute(resized_img2.copy(), None)
+        matches = get_matches(des1, des2)
+        f, kp1, kp2 = get_fund_matrix_from_matches(kp1, kp2, matches)
+
+    # SuperGlue
+    if experiment == "superglue":
+        f, kp1, kp2 = run_feature_extraction_glue(gray1, gray2)
 
     if show:
-        plot_keypoints(
-            gray1,
-            gray2,
-            resized_img1,
-            resized_img2,
-            kp1,
-            kp2,
-            kp1_cv,
-            kp2_cv,
-        )
+        plot_keypoints(gray1, gray2, resized_img1, resized_img2, kp1, kp2)
 
-    matches = get_matches(des1, des2)
-    matches_cv = get_matches(des1_cv, des2_cv)
+    return f, kp1, kp2
 
-    f_own, kp1_own, kp2_own = get_fund_matrix_from_matches(kp1, kp2, matches)
-    f_cv, kp1_cv, kp2_cv = get_fund_matrix_from_matches(
-        kp1_cv,
-        kp2_cv,
-        matches_cv,
+
+def run_feature_extraction_glue(gray1, gray2):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    config = {
+        "superpoint": {
+            "nms_radius": 3,
+            "keypoint_threshold": 0.005,
+            "max_keypoints": 2048,
+        },
+        "superglue": {
+            "weights": "outdoor",
+            "sinkhorn_iterations": 100,
+            "match_threshold": 0.2,
+        },
+    }
+    matching = Matching(config).eval().to(device)
+    img1_glue = torch.from_numpy(gray1)[None][None] / 255.0
+    img2_glue = torch.from_numpy(gray2)[None][None] / 255.0
+
+    start = time.time()
+    pred = matching({"image0": img1_glue, "image1": img2_glue})
+    pred = {k: v[0].detach().cpu().numpy() for k, v in pred.items()}
+    end = time.time()
+    print("Total time: {:.2f} ms".format((end - start) * 1000))
+
+    matches = pred["matches0"]
+    kp1, kp2 = pred["keypoints0"], pred["keypoints1"]
+    valid = matches > -1
+    mkpts1 = kp1[valid]
+    mkpts2 = kp2[matches[valid]]
+
+    f_superglue, inlier_mask = cv.findFundamentalMat(
+        mkpts1,
+        mkpts2,
+        cv.USAC_MAGSAC,
+        ransacReprojThreshold=0.25,
+        confidence=0.99999,
+        maxIters=10000,
     )
 
-    return f_own, f_cv, kp1_own, kp2_own, kp1_cv, kp2_cv
+    return f_superglue, mkpts1, mkpts2
 
 
 def run_evaluation(
     folder: str,
     src: str,
     params: dict,
+    experiments: list[str] = ["own_sift", "opencv_sift", "superglue"],
     idx: int = -1,
     img_size: tuple[int, int] = (200, 200),
     show: bool = False,
-) -> tuple[float, float, float, float]:
+) -> dict:
     """Run evaluation on a given scene and index.
 
     Args:
@@ -108,14 +150,8 @@ def run_evaluation(
     img1_path = src + "/" + folder + "/images/" + img1_id + ".jpg"
     img2_path = src + "/" + folder + "/images/" + img2_id + ".jpg"
 
-    (
-        err_f_own,
-        err_f_opencv,
-        err_q_own,
-        err_t_own,
-        err_q_opencv,
-        err_t_opencv,
-    ) = get_errors_for_case(
+    errors = get_errors_for_case(
+        experiments,
         params,
         folder,
         idx,
@@ -129,10 +165,11 @@ def run_evaluation(
         show,
     )
 
-    return err_f_own, err_f_opencv, err_q_own, err_t_own, err_q_opencv, err_t_opencv
+    return errors
 
 
 def get_errors_for_case(
+    experiments: list[str],
     params: dict,
     folder: str,
     idx: int,
@@ -144,7 +181,7 @@ def get_errors_for_case(
     img2_id: str,
     data: pd.DataFrame,
     show: bool = False,
-) -> tuple[float, float, float, float, float, float]:
+) -> dict:
     """Calculates the fundamental matrices and generate the errors for the given case.
 
     Args:
@@ -169,43 +206,48 @@ def get_errors_for_case(
         img2_id,
     )
 
-    f_own, f_opencv, kp1_own, kp2_own, kp1_cv, kp2_cv = find_fund_matrix(
-        img1_path,
-        img2_path,
-        img_size,
-        params,
-        show,
-    )
+    general_config_fund_matrix = {
+        "img1_path": img1_path,
+        "img2_path": img2_path,
+        "img_size": img_size,
+        "show": show,
+    }
 
-    err_q_own, err_t_own = compute_errors(
-        f_own,
-        k1,
-        k2,
-        r1,
-        r2,
-        t1,
-        t2,
-        kp1_own,
-        kp2_own,
-        scale,
-    )
+    general_params_errors = {
+        "K1": k1,
+        "K2": k2,
+        "R1": r1,
+        "R2": r2,
+        "T1": t1,
+        "T2": t2,
+        "scaling_factor": scale,
+    }
 
-    err_q_opencv, err_t_opencv = compute_errors(
-        f_opencv,
-        k1,
-        k2,
-        r1,
-        r2,
-        t1,
-        t2,
-        kp1_cv,
-        kp2_cv,
-        scale,
-    )
     f_true = np.array(
         [float(x) for x in data.iloc[idx]["fundamental_matrix"].split(" ")],
     )
-    err_f_own = np.linalg.norm(f_own.ravel() - f_true)
-    err_f_cv = np.linalg.norm(f_opencv.ravel() - f_true)
 
-    return err_f_own, err_f_cv, err_q_own, err_t_own, err_q_opencv, err_t_opencv
+    errors = {exp: {} for exp in experiments}
+
+    for exp in experiments:
+        print(f"Starting experiment: {exp}")
+        f, kp1, kp2 = find_fund_matrix(
+            **general_config_fund_matrix,
+            experiment=exp,
+            params=params,
+        )
+
+        print("Computing errors...")
+        err_q, err_t = compute_errors(
+            F=f,
+            kp1=kp1,
+            kp2=kp2,
+            **general_params_errors,
+        )
+        err_f = np.linalg.norm(f.ravel() - f_true)
+
+        errors[exp]["err_q"] = err_q
+        errors[exp]["err_t"] = err_t
+        errors[exp]["err_f"] = err_f
+
+    return errors

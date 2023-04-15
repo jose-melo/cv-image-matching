@@ -28,6 +28,8 @@ def main():
         "descriptor_filter_scale_factor": 0.25,
         "descriptor_cutoff_factor": 2.5,
     }
+    experiments = ["own_sift", "opencv_sift", "superglue"]
+    error_types = ["err_f", "err_q", "err_t"]
 
     folders = [
         filename
@@ -37,78 +39,39 @@ def main():
     output_path = "results.csv"
     src = SRC
     errors = {}
-    with open(output_path, "w") as f:
-        f.write(
-            "folder,mean_err_f_own,std_err_f_own,mean_err_f_opencv,std_err_f_opencv,"
-            "mean_err_q_own,std_err_q_own,mean_err_t_own,std_err_t_own,"
-            "mean_err_q_opencv,std_err_q_opencv,mean_err_t_opencv,std_err_t_opencv\n",
-        )
     mean_errors = {}
     std_errors = {}
-    for folder in folders:
-        errors[folder] = {
-            error: []
-            for error in [
-                "err_f_own",
-                "err_f_opencv",
-                "err_q_own",
-                "err_t_own",
-                "err_q_opencv",
-                "err_t_opencv",
-            ]
-        }
-        for _ in range(10):
-            (
-                err_f_own,
-                err_f_opencv,
-                err_q_own,
-                err_t_own,
-                err_q_opencv,
-                err_t_opencv,
-            ) = run_evaluation(
-                folder,
-                src,
-                params_sift,
-            )
-            errors[folder]["err_q_own"].append(err_q_own)
-            errors[folder]["err_q_opencv"].append(err_q_opencv)
-            errors[folder]["err_t_own"].append(err_t_own)
-            errors[folder]["err_t_opencv"].append(err_t_opencv)
-            errors[folder]["err_f_own"].append(err_f_own)
-            errors[folder]["err_f_opencv"].append(err_f_opencv)
+    with open(output_path, "w") as f:
+        f.write("scene,")
+        for exp in experiments:
+            errors[exp] = {}
+            mean_errors[exp] = {}
+            std_errors[exp] = {}
+            for error_type in error_types:
+                errors[exp][error_type] = []
+                f.write(f"{exp}_mean_{error_type},")
+                f.write(f"{exp}_std_{error_type},")
+        f.write("\n")
 
-        mean_errors[folder] = {
-            error: np.mean(errors[folder][error])
-            for error in [
-                "err_f_own",
-                "err_f_opencv",
-                "err_q_own",
-                "err_t_own",
-                "err_q_opencv",
-                "err_t_opencv",
-            ]
-        }
-        std_errors[folder] = {
-            error: np.std(errors[folder][error])
-            for error in [
-                "err_f_own",
-                "err_f_opencv",
-                "err_q_own",
-                "err_t_own",
-                "err_q_opencv",
-                "err_t_opencv",
-            ]
-        }
+    for folder in folders:
+        for _ in range(10):
+            error = run_evaluation(folder, src, params_sift, experiments)
+            for exp in experiments:
+                for error_type in error_types:
+                    errors[exp][error_type].append(error[exp][error_type])
+
+        for exp in experiments:
+            for error_type in error_types:
+                mean_errors[exp][error_type] = np.mean(errors[exp][error_type])
+                std_errors[exp][error_type] = np.std(errors[exp][error_type])
 
         with open(output_path, "a") as f:
-            f.write(
-                f"{folder},{mean_errors[folder]['err_f_own']},{std_errors[folder]['err_f_own']},"
-                f"{mean_errors[folder]['err_f_opencv']},{std_errors[folder]['err_f_opencv']},"
-                f"{mean_errors[folder]['err_q_own']},{std_errors[folder]['err_q_own']},"
-                f"{mean_errors[folder]['err_t_own']},{std_errors[folder]['err_t_own']},"
-                f"{mean_errors[folder]['err_q_opencv']},{std_errors[folder]['err_q_opencv']},"
-                f"{mean_errors[folder]['err_t_opencv']},{std_errors[folder]['err_t_opencv']}\n",
-            )
+            f.write(f"{folder},")
+            for exp in experiments:
+                for error_type in error_types:
+                    f.write(f"{mean_errors[exp][error_type]:.4f},")
+                    f.write(f"{std_errors[exp][error_type]:.4f},")
+            f.write("\n")
 
 
 if __name__ == "__main__":
