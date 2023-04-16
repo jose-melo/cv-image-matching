@@ -3,7 +3,7 @@
 
 ![GitHub](https://img.shields.io/github/license/jose-melo/cv-image-matching) ![Lines of code](https://img.shields.io/tokei/lines/github/jose-melo/cv-image-matching)
 ### A Comprehensive Study on Image Matching
-The paper can be found here: [Reviving Classical Methods in Computer Vision](https://github.com/jose-melo/cv-image-matching/files/11243286/Report___Reviving_Classical_Methods_in_Computer_Vision.pdf)
+The full report can be found here: [Reviving Classical Methods in Computer Vision](https://github.com/jose-melo/cv-image-matching/files/11243286/Report___Reviving_Classical_Methods_in_Computer_Vision.pdf)
 
 
 The image matching problem is a significant challenge in computer vision with various applications. Although traditional methods such as local features have been widely used, end-to-end solutions based on deep learning are emerging, presenting new challenges in comparing classical and deep learning-based approaches. This project aims to contribute to the ongoing efforts to advance the field of image matching by studying the parameters of feature detection algorithms and their impact on the accuracy of camera pose estimation. To achieve this, we implemented a SIFT algorithm from scratch and evaluated it against state-of-the-art deep learning-based methods, SuperGlue and LoFTR, using the PhotoTourism dataset. Our results show that the SIFT algorithm performs relatively well in challenging scenarios, even if it is worse than the state-of-the-art methods.
