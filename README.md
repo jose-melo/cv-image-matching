@@ -76,6 +76,13 @@ In this project, we aim to estimate the fundamental matrix between two images us
 
 ## Usage
 
+### Installing the requirements
+
+To install the required libraries:
+```
+pip install -r requirements.txt
+```
+
 ### Downloading the data
 
 In order to use the code, it is important to download the data from the <a href="https://www.kaggle.com/competitions/image-matching-challenge-2022/data">Image Challenge<a>
