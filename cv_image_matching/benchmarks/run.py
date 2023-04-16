@@ -28,7 +28,7 @@ def main():
         "descriptor_filter_scale_factor": 0.25,
         "descriptor_cutoff_factor": 2.5,
     }
-    experiments = ["own_sift", "opencv_sift", "superglue"]
+    experiments = ["own_sift", "opencv_sift", "superglue", "loftr"]
     error_types = ["err_f", "err_q", "err_t"]
 
     folders = [

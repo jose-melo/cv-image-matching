@@ -4,6 +4,7 @@ import cv2 as cv
 import numpy as np
 import pandas as pd
 import torch
+from kornia.feature import LoFTR
 from numpy import ndarray
 
 from cv_image_matching.utils.profiler import profile
@@ -67,10 +68,42 @@ def find_fund_matrix(
     if experiment == "superglue":
         f, kp1, kp2 = run_feature_extraction_glue(gray1, gray2)
 
+    if experiment == "loftr":
+        f, kp1, kp2 = run_feature_extraction_loftr(gray1, gray2)
+
     if show:
         plot_keypoints(gray1, gray2, resized_img1, resized_img2, kp1, kp2)
 
     return f, kp1, kp2
+
+
+def run_feature_extraction_loftr(gray1, gray2):
+    img1 = torch.from_numpy(gray1)[None][None] / 255.0
+    img2 = torch.from_numpy(gray2)[None][None] / 255.0
+
+    matcher = LoFTR(pretrained="outdoor")
+
+    input_dict = {
+        "image0": img1,
+        "image1": img2,
+    }
+
+    with torch.inference_mode():
+        matches = matcher(input_dict)
+
+    mkpts0 = matches["keypoints0"].cpu().numpy()
+    mkpts1 = matches["keypoints1"].cpu().numpy()
+    f_loftr, inliers = cv.findFundamentalMat(
+        mkpts0,
+        mkpts1,
+        cv.USAC_MAGSAC,
+        0.5,
+        0.999,
+        100000,
+    )
+    inliers = inliers > 0
+
+    return f_loftr, mkpts0, mkpts1
 
 
 def run_feature_extraction_glue(gray1, gray2):
